@@ -1,0 +1,6 @@
+psycopg2 
+djangorestframework 
+django-cors-headers
+django  
+djangorestframework-simplejwt
+djoser
