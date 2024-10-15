@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'djoser',
     'core',
     'accounts',
+    'social',
 ]
 
 MIDDLEWARE = [
