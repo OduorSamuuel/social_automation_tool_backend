@@ -1,31 +1,39 @@
 # Django imports
 from django.urls import reverse
 from django.contrib.sites.shortcuts import get_current_site
-from django.contrib.auth import get_user_model, authenticate
+from django.contrib.auth import get_user_model, authenticate, login, logout
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import smart_bytes, smart_str
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
 from rest_framework.permissions import IsAuthenticated
+from django.views.decorators.csrf import csrf_exempt
 from django.template.loader import render_to_string
+from django.conf import settings
+
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
 
 # Rest framework imports
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-# Token imports
-from rest_framework_simplejwt.tokens import RefreshToken
+# Google Auth
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 # Local imports
 from .serializers import (
-    UserSerializer, LoginSerializer, UpdateUserSerializer, 
-    PasswordResetRequestSerializer, SetNewPasswordSerializer
+    UserSerializer, LoginSerializer, UpdateUserSerializer,
+    PasswordResetRequestSerializer, SetNewPasswordSerializer, UserProfileSerializer
 )
 
 # Get custom User model
 User = get_user_model()
-
 
 # User Registration View
 class RegisterView(generics.CreateAPIView):
@@ -33,47 +41,125 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     serializer_class = UserSerializer
 
-
 # User Login View
-class LoginView(generics.GenericAPIView):
+class LoginView(APIView):
     permission_classes = [AllowAny]
-    serializer_class = LoginSerializer
 
     def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            user = authenticate(email=serializer.validated_data['email'], password=serializer.validated_data['password'])
-            if user:
-                refresh = RefreshToken.for_user(user)
-                return Response({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                }, status=status.HTTP_200_OK)
-            return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        email = request.data.get('email')
+        password = request.data.get('password')
 
+        user = authenticate(request, email=email, password=password)
+
+        if user is not None:
+            login(request, user)
+            return Response({
+                'message': 'Login successful',
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                }
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+
+# Google Auth View
+# Google Auth View
+class GoogleAuthView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get('token')
+        if not token:
+            return Response({'error': 'Token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Introducing a clock skew allowance of 10 seconds
+            idinfo = id_token.verify_oauth2_token(token, requests.Request(), settings.GOOGLE_CLIENT_ID, clock_skew_in_seconds=10)
+
+            # Validate the issuer to ensure it comes from Google
+            if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+                raise ValueError('Wrong issuer.')
+
+            email = idinfo['email']
+
+            # Check if the user exists, if not, create a new user
+            user, created = User.objects.get_or_create(email=email)
+            if created:
+                user.set_unusable_password()  # Prevent direct login with password
+                user.save()
+
+            # Log the user in using the default authentication backend
+            login(request, user)  # No backend specified here
+
+            # Explicitly save the session if necessary
+            request.session.save()
+
+            return Response({
+                'message': 'Google authentication successful',
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                }
+            }, status=status.HTTP_200_OK)
+
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+class GoogleLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get('token')
+        try:
+            idinfo = id_token.verify_oauth2_token(token, requests.Request(), settings.GOOGLE_CLIENT_ID)
+
+            if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+                raise ValueError('Wrong issuer.')
+
+            email = idinfo['email']
+
+            # Check if the user exists, if not, create a new user
+            user, created = User.objects.get_or_create(email=email)
+            if created:
+                user.set_unusable_password()
+                user.save()
+
+            # Log the user in with the correct backend
+            login(request, user, backend='social_core.backends.google.GoogleOAuth2')
+
+            return Response({
+                'message': 'Google login successful',
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                }
+            }, status=status.HTTP_200_OK)
+
+        except ValueError:
+            return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
 
 # User Logout View
-class LogoutView(generics.GenericAPIView):
+class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:
-            refresh_token = request.data.get("refresh")  # Get the refresh token from the request
-            token = RefreshToken(refresh_token)  # Create a RefreshToken object from the token
-            token.blacklist()  # Blacklist the token
+            logout(request)
             return Response({"message": "Logged out successfully"}, status=status.HTTP_205_RESET_CONTENT)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # User Profile View (Get and Update)
 class UserProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = UpdateUserSerializer
-    permission_classes = [IsAuthenticated]
+    serializer_class = UserProfileSerializer
+    permission_classes = [AllowAny]  # Set permission to allow any authenticated user
 
     def get_object(self):
         return self.request.user
-
 
 # Password Reset Request View
 class PasswordResetRequestView(generics.GenericAPIView):
@@ -87,16 +173,13 @@ class PasswordResetRequestView(generics.GenericAPIView):
             user = User.objects.filter(email=email).first()
 
             if user:
-                # Generate token and UID
                 token = PasswordResetTokenGenerator().make_token(user)
                 uidb64 = urlsafe_base64_encode(smart_bytes(user.id))
 
-                # Create password reset link
                 domain = get_current_site(request).domain
-                relative_link = reverse('password-reset-confirm', kwargs={'uidb64': uidb64, 'token': token})  # Ensure this matches the URL pattern
+                relative_link = reverse('password-reset-confirm', kwargs={'uidb64': uidb64, 'token': token})
                 reset_url = f'http://{domain}{relative_link}'
 
-                # Email content
                 subject = 'Password Reset Request'
                 message = f'Hello,\nUse the link below to reset your password:\n{reset_url}'
                 send_mail(subject, message, 'from@example.com', [user.email])
@@ -105,7 +188,6 @@ class PasswordResetRequestView(generics.GenericAPIView):
             return Response({'error': 'User with this email does not exist'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # Confirm Password Reset View (Set new password)
 class PasswordResetConfirmView(generics.GenericAPIView):
@@ -116,16 +198,13 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
 
         try:
-            # Decode UID to get user ID
             user_id = smart_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(id=user_id)
 
-            # Check if the token is valid
             if not PasswordResetTokenGenerator().check_token(user, token):
                 return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
 
             if serializer.is_valid():
-                # Set new password and save user
                 user.set_password(serializer.data['new_password'])
                 user.save()
                 return Response({'message': 'Password reset successful'}, status=status.HTTP_200_OK)
@@ -134,7 +213,6 @@ class PasswordResetConfirmView(generics.GenericAPIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class CheckLoginStatusView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -145,7 +223,6 @@ class CheckLoginStatusView(generics.GenericAPIView):
             return Response({
                 'id': user.id,
                 'email': user.email,
-            
             }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

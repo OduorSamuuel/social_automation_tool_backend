@@ -19,12 +19,26 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
 ]
 
+# CSRF configuration
+CSRF_TRUSTED_ORIGINS = [
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+]
+
+CORS_ALLOW_CREDENTIALS = True  # Make sure this is set to allow cookies
+
 # Application definition
 INSTALLED_APPS = [
+    'django.contrib.sessions',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'django.contrib.sessions',
+    'django.contrib.sites',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
+    'social_django',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework_simplejwt.token_blacklist',
@@ -33,24 +47,46 @@ INSTALLED_APPS = [
     'djoser',
     'core',
     'accounts',
-    'social',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # CORS middleware should be at the top
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Should be first to handle CORS preflight requests
+    'django.middleware.security.SecurityMiddleware',  # Handles security measures like HTTPS
+    'django.contrib.sessions.middleware.SessionMiddleware',  # Ensures session data is available early
+    'django.middleware.common.CommonMiddleware',  # Common tasks like handling response headers
+    'django.middleware.csrf.CsrfViewMiddleware',  # Handles CSRF protection, which requires session to be set first
+    'django.contrib.auth.middleware.AuthenticationMiddleware',  # Uses session to authenticate users
+    'django.contrib.messages.middleware.MessageMiddleware',  # Provides messaging framework (depends on session)
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',  # Protects against clickjacking
+    'allauth.account.middleware.AccountMiddleware',  # Handles account-specific logic
 ]
+
+# Google OAuth2 configuration
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': os.environ.get('GOOGLE_CLIENT_ID', '161841218791-6rgpmnm1inblhi5bk0gvvntn0ulku4mr.apps.googleusercontent.com'),
+            'secret': os.environ.get('GOOGLE_CLIENT_SECRET', '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'),
+            'key': ''
+        },
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    }
+}
 
 # Update to point to the 'core' app for routing
 ROOT_URLCONF = 'core.urls'
 
 AUTH_USER_MODEL = 'accounts.User'
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+   # 'social_core.backends.google.GoogleOAuth2',
+]
 
 TEMPLATES = [
     {
@@ -74,8 +110,8 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'onyangos949@gmail.com'
-EMAIL_HOST_PASSWORD = 'uyryzvssxrinfivg'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'onyangos949@gmail.com')  # Use environment variable for security
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'uyryzvssxrinfivg')  # Use environment variable for security
 DEFAULT_FROM_EMAIL = 'Onyangos Team <onyangos949@gmail.com>'
 
 # Database configuration (PostgreSQL)
@@ -93,7 +129,9 @@ DATABASES = {
 # REST framework and JWT setup
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',  # Optional: if you want to allow basic auth as well
+        # 'rest_framework_simplejwt.authentication.JWTAuthentication',  # Comment out if you don't want JWT
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -138,6 +176,7 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+GOOGLE_CLIENT_ID='161841218791-6rgpmnm1inblhi5bk0gvvntn0ulku4mr.apps.googleusercontent.com'
 
 # Logging configuration (optional)
 LOGGING = {

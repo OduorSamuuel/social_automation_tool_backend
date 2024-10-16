@@ -44,7 +44,7 @@ class LoginSerializer(serializers.Serializer):
 class UpdateUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'first_name', 'last_name']
+        fields = ['email']
 
 # Password Reset Request Serializer
 class PasswordResetRequestSerializer(serializers.Serializer):
@@ -78,3 +78,12 @@ class SetNewPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError({'error': str(e)})
 
         return super().validate(attrs)
+class UserProfileSerializer(serializers.ModelSerializer):
+    is_authenticated = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'email',  'is_authenticated']
+
+    def get_is_authenticated(self, obj):
+        return obj.is_authenticated
