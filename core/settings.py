@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'djoser',
     'core',
     'accounts',
+     'social', 
 ]
 
 MIDDLEWARE = [
@@ -60,6 +61,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',  # Protects against clickjacking
     'allauth.account.middleware.AccountMiddleware',  # Handles account-specific logic
 ]
+
+FACEBOOK_CLIENT_ID = '1926414434547076'
+FACEBOOK_CLIENT_SECRET = 'a78d8358ae882a8aa10d198f08e00091'
+FACEBOOK_REDIRECT_URI = 'http://localhost:8000/api/social/facebook/callback/'
 
 # Google OAuth2 configuration
 SOCIALACCOUNT_PROVIDERS = {

@@ -52,18 +52,32 @@ class LoginView(APIView):
         user = authenticate(request, email=email, password=password)
 
         if user is not None:
+            # Log the user in (this sets the session cookie)
             login(request, user)
-            return Response({
+
+            # Send a success response with user data
+            response = Response({
                 'message': 'Login successful',
                 'user': {
                     'id': user.id,
                     'email': user.email,
                 }
             }, status=status.HTTP_200_OK)
+
+            # Explicitly include the session ID cookie in the response headers (optional)
+            response.set_cookie(
+                key='sessionid',
+                value=request.session.session_key,
+                httponly=True,  # Ensures that the cookie cannot be accessed via JavaScript
+                secure=True,  # Only send cookie over HTTPS
+                samesite='Lax'  # Adjust if needed, e.g., 'None' for cross-site requests
+            )
+
+            return response
+
         else:
+            # Send a failure response if authentication fails
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-
-
 
 # Google Auth View
 # Google Auth View
@@ -97,18 +111,23 @@ class GoogleAuthView(APIView):
             # Explicitly save the session if necessary
             request.session.save()
 
+            # Get the session key saved to the database
+            session_key = request.session.session_key
+
             return Response({
                 'message': 'Google authentication successful',
                 'user': {
                     'id': user.id,
                     'email': user.email,
-                }
+                },
+                'session_key': session_key  # Include the session key in the response
             }, status=status.HTTP_200_OK)
 
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 class GoogleLoginView(APIView):
     permission_classes = [AllowAny]
 
