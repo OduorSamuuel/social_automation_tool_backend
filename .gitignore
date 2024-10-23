@@ -2,3 +2,4 @@
 db.sqlite3
 /accounts/db.sqlite3
 /social/db.sqlite3
+/core/settings.py
